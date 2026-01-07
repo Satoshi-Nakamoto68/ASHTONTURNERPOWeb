@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Menu,
   X,
@@ -14,9 +14,11 @@ import {
   Gamepad2,
   Heart,
   ArrowRight,
+  Star,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { NAV_LINKS, CATEGORIES } from "@/lib/constants";
+import { NAV_LINKS, CATEGORIES, PRODUCTS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { useCart } from "@/hooks/useCart";
 
@@ -36,10 +38,15 @@ export function Header() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedResultIndex, setSelectedResultIndex] = useState(-1);
+  const [isSearching, setIsSearching] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const { items } = useCart();
   const cartCount = items.reduce((acc, item) => acc + item.quantity, 0);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchResultsRef = useRef<HTMLDivElement>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
   const megaMenuRef = useRef<HTMLDivElement>(null);
 
   // Handle scroll effect
@@ -58,21 +65,116 @@ export function Header() {
     }
   }, [isSearchOpen]);
 
-  // Handle click outside mega menu
+  // Search functionality
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+
+    setIsSearching(true);
+    const query = searchQuery.toLowerCase().trim();
+    const results = PRODUCTS.filter((product) => {
+      const nameMatch = product.name.toLowerCase().includes(query);
+      const descMatch = product.shortDescription?.toLowerCase().includes(query);
+      const categoryMatch = product.category.toLowerCase().includes(query);
+      const featuresMatch = product.features.some((feature) =>
+        feature.toLowerCase().includes(query)
+      );
+      return nameMatch || descMatch || categoryMatch || featuresMatch;
+    });
+
+    // Simulate slight delay for better UX
+    setTimeout(() => setIsSearching(false), 150);
+    return results.slice(0, 6); // Limit to 6 results
+  }, [searchQuery]);
+
+  // Handle click outside mega menu and search
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        megaMenuRef.current &&
-        !megaMenuRef.current.contains(event.target as Node)
-      ) {
+      const target = event.target as Node;
+
+      // Handle mega menu
+      if (megaMenuRef.current && !megaMenuRef.current.contains(target)) {
         setIsShopOpen(false);
       }
+
+      // Handle search - close when clicking outside search container
+      if (isSearchOpen) {
+        const isClickInsideSearch =
+          searchContainerRef.current?.contains(target) ||
+          searchInputRef.current?.contains(target) ||
+          searchResultsRef.current?.contains(target);
+
+        if (!isClickInsideSearch) {
+          // Close search with smooth animation
+          setIsSearchOpen(false);
+          setSearchQuery("");
+          setSelectedResultIndex(-1);
+        }
+      }
     };
-    if (isShopOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
+
+    if (isShopOpen || isSearchOpen) {
+      // Use capture phase to catch clicks early
+      document.addEventListener("mousedown", handleClickOutside, true);
+      // Also listen for clicks on backdrop
+      document.addEventListener("click", handleClickOutside, true);
     }
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isShopOpen]);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside, true);
+      document.removeEventListener("click", handleClickOutside, true);
+    };
+  }, [isShopOpen, isSearchOpen]);
+
+  // Handle keyboard navigation in search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isSearchOpen || searchResults.length === 0) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedResultIndex((prev) =>
+          prev < searchResults.length - 1 ? prev + 1 : 0
+        );
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedResultIndex((prev) =>
+          prev > 0 ? prev - 1 : searchResults.length - 1
+        );
+      } else if (e.key === "Enter" && selectedResultIndex >= 0) {
+        e.preventDefault();
+        const selectedProduct = searchResults[selectedResultIndex];
+        if (selectedProduct) {
+          navigate(`/product/${selectedProduct.id}`);
+          setIsSearchOpen(false);
+          setSearchQuery("");
+          setSelectedResultIndex(-1);
+        }
+      }
+    };
+
+    if (isSearchOpen) {
+      window.addEventListener("keydown", handleKeyDown);
+    }
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isSearchOpen, searchResults, selectedResultIndex, navigate]);
+
+  // Highlight search term in text
+  const highlightText = (text: string, query: string) => {
+    if (!query.trim()) return text;
+    const parts = text.split(new RegExp(`(${query})`, "gi"));
+    return parts.map((part, index) =>
+      part.toLowerCase() === query.toLowerCase() ? (
+        <mark
+          key={index}
+          className="bg-primary/20 text-primary font-semibold rounded px-0.5"
+        >
+          {part}
+        </mark>
+      ) : (
+        part
+      )
+    );
+  };
 
   return (
     <header
@@ -389,53 +491,485 @@ export function Header() {
 
         {/* Enhanced Actions */}
         <div className="flex items-center gap-2">
-          {/* Search with expand animation */}
+          {/* Enhanced Search with Results Dropdown */}
           <div className="relative hidden md:block">
             {isSearchOpen ? (
-              <div
-                className={cn(
-                  "absolute right-0 top-1/2 -translate-y-1/2 z-50",
-                  "flex items-center gap-2",
-                  "bg-card/95 backdrop-blur-xl border border-border rounded-lg",
-                  "shadow-xl shadow-black/10",
-                  "px-3 py-2",
-                  "opacity-100 translate-x-0",
-                  "transition-all duration-200 ease-out"
-                )}
-              >
-                <Search className="h-4 w-4 text-muted-foreground" />
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search products..."
-                  className="w-48 bg-transparent border-none outline-none text-sm"
-                  onBlur={() => {
-                    if (!searchQuery) setIsSearchOpen(false);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      setIsSearchOpen(false);
-                      setSearchQuery("");
-                    }
-                  }}
-                />
-                <button
-                  onClick={() => {
+              <>
+                {/* Backdrop Overlay with smooth fade */}
+                <div
+                  className={cn(
+                    "fixed inset-0 bg-black/30 backdrop-blur-md z-40",
+                    "transition-all duration-300 ease-out",
+                    isSearchOpen
+                      ? "opacity-100 pointer-events-auto"
+                      : "opacity-0 pointer-events-none"
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Close search with animation
                     setIsSearchOpen(false);
                     setSearchQuery("");
+                    setSelectedResultIndex(-1);
                   }}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Close search"
+                />
+
+                {/* Search Container - Fixed positioning for better control */}
+                <div
+                  ref={searchContainerRef}
+                  className={cn(
+                    "fixed z-50 w-[calc(100vw-2rem)] max-w-[500px]",
+                    "right-4 top-20 md:right-8 md:top-24",
+                    "transition-all duration-300 ease-out",
+                    isSearchOpen
+                      ? "opacity-100 translate-y-0 scale-100"
+                      : "opacity-0 translate-y-4 scale-95"
+                  )}
+                  onClick={(e) => {
+                    // Prevent closing when clicking inside search container
+                    e.stopPropagation();
+                  }}
                 >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+                  {/* Search Input Container */}
+                  <div
+                    className={cn(
+                      "relative flex items-center gap-2",
+                      "bg-background border-2 border-primary/30 rounded-xl",
+                      "shadow-2xl shadow-primary/20",
+                      "px-4 py-3",
+                      "backdrop-blur-xl",
+                      "before:absolute before:inset-0 before:rounded-xl",
+                      "before:bg-gradient-to-br before:from-primary/10 before:via-primary/5 before:to-transparent",
+                      "before:-z-10"
+                    )}
+                  >
+                    {/* Search Icon with Animation */}
+                    <div className="relative">
+                      {isSearching ? (
+                        <Loader2 className="h-5 w-5 text-primary animate-spin" />
+                      ) : (
+                        <Search className="h-5 w-5 text-primary transition-all duration-300" />
+                      )}
+                      {/* Pulse Effect */}
+                      <div
+                        className={cn(
+                          "absolute inset-0 rounded-full bg-primary/20",
+                          "animate-ping opacity-0",
+                          isSearching && "opacity-100"
+                        )}
+                      />
+                    </div>
+
+                    {/* Input Field */}
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setSelectedResultIndex(-1);
+                      }}
+                      placeholder="Search products, categories, features..."
+                      className={cn(
+                        "flex-1 bg-transparent border-none outline-none",
+                        "text-sm placeholder:text-muted-foreground/60",
+                        "focus:ring-0"
+                      )}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setIsSearchOpen(false);
+                          setSearchQuery("");
+                          setSelectedResultIndex(-1);
+                        }
+                      }}
+                      onFocus={() => setIsSearchOpen(true)}
+                    />
+
+                    {/* Clear Button */}
+                    {searchQuery && (
+                      <button
+                        onClick={() => {
+                          setSearchQuery("");
+                          setSelectedResultIndex(-1);
+                          searchInputRef.current?.focus();
+                        }}
+                        className={cn(
+                          "text-muted-foreground hover:text-foreground",
+                          "transition-all duration-200",
+                          "hover:scale-110 hover:rotate-90"
+                        )}
+                        aria-label="Clear search"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Search Results Dropdown */}
+                  {searchQuery.trim() && (
+                    <div
+                      ref={searchResultsRef}
+                      className={cn(
+                        "relative mt-3 w-full",
+                        "bg-background border-2 border-primary/30 rounded-2xl",
+                        "shadow-2xl shadow-primary/30",
+                        "overflow-hidden",
+                        "transition-all duration-300 ease-out",
+                        "backdrop-blur-xl",
+                        searchResults.length > 0 || isSearching
+                          ? "opacity-100 translate-y-0 pointer-events-auto max-h-[600px]"
+                          : "opacity-0 translate-y-2 pointer-events-none max-h-0"
+                      )}
+                      onClick={(e) => {
+                        // Prevent closing when clicking inside results
+                        e.stopPropagation();
+                      }}
+                    >
+                      {/* Animated Background Gradient */}
+                      <div
+                        className={cn(
+                          "absolute inset-0 -z-10 rounded-2xl",
+                          "bg-gradient-to-br from-background via-background to-surface",
+                          "opacity-100"
+                        )}
+                      />
+                      {/* Glowing Border Effect */}
+                      <div
+                        className={cn(
+                          "absolute -inset-0.5 rounded-2xl -z-10",
+                          "bg-gradient-to-r from-primary/20 via-primary/10 to-primary/20",
+                          "blur-xl opacity-50",
+                          "animate-pulse"
+                        )}
+                      />
+                      {/* Shimmer Overlay */}
+                      <div
+                        className={cn(
+                          "absolute inset-0 rounded-2xl -z-10",
+                          "bg-gradient-to-r from-transparent via-primary/5 to-transparent",
+                          "opacity-0 animate-shimmer"
+                        )}
+                        style={{
+                          backgroundSize: "200% 100%",
+                          animation: "shimmer 3s ease-in-out infinite",
+                        }}
+                      />
+                      {/* Results Header */}
+                      <div
+                        className={cn(
+                          "relative px-4 py-3 border-b-2 border-primary/20",
+                          "bg-gradient-to-r from-primary/15 via-primary/10 to-primary/5",
+                          "backdrop-blur-sm"
+                        )}
+                      >
+                        {/* Header Glow Effect */}
+                        <div
+                          className={cn(
+                            "absolute inset-0",
+                            "bg-gradient-to-r from-primary/10 via-primary/5 to-transparent",
+                            "opacity-50"
+                          )}
+                        />
+                        <div className="relative z-10 flex items-center justify-between">
+                          <span className="text-sm font-bold text-foreground">
+                            {isSearching ? (
+                              <span className="flex items-center gap-2">
+                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                <span className="bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+                                  Searching...
+                                </span>
+                              </span>
+                            ) : searchResults.length > 0 ? (
+                              <span className="bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+                                {searchResults.length} result
+                                {searchResults.length > 1 ? "s" : ""} found
+                              </span>
+                            ) : (
+                              "No results found"
+                            )}
+                          </span>
+                          {searchResults.length > 0 && (
+                            <span className="text-xs font-medium text-muted-foreground bg-secondary/50 px-2 py-1 rounded-md">
+                              ↑↓ Navigate • Enter Select
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Results List */}
+                      <div
+                        className={cn(
+                          "overflow-y-auto custom-scrollbar bg-surface/30",
+                          "transition-all duration-300",
+                          searchResults.length > 0 || isSearching
+                            ? "max-h-[500px] opacity-100"
+                            : "max-h-0 opacity-0"
+                        )}
+                      >
+                        {searchResults.length > 0 ? (
+                          <div className="p-3">
+                            {searchResults.map((product, index) => {
+                              const isSelected = selectedResultIndex === index;
+                              const categoryIcon =
+                                categoryIcons[product.category];
+
+                              return (
+                                <Link
+                                  key={product.id}
+                                  to={`/product/${product.id}`}
+                                  onClick={() => {
+                                    setIsSearchOpen(false);
+                                    setSearchQuery("");
+                                    setSelectedResultIndex(-1);
+                                  }}
+                                  className={cn(
+                                    "relative block p-4 rounded-xl mb-2",
+                                    "transition-all duration-300",
+                                    "group/result",
+                                    isSelected
+                                      ? "bg-gradient-to-r from-primary/20 via-primary/15 to-primary/10 border-2 border-primary/50 shadow-xl shadow-primary/20 scale-[1.02]"
+                                      : "bg-card/80 border-2 border-border/50 hover:bg-gradient-to-r hover:from-primary/10 hover:via-primary/5 hover:to-transparent hover:border-primary/30 hover:shadow-lg hover:shadow-primary/10"
+                                  )}
+                                  onMouseEnter={() =>
+                                    setSelectedResultIndex(index)
+                                  }
+                                >
+                                  {/* Background Glow Effect */}
+                                  <div
+                                    className={cn(
+                                      "absolute inset-0 rounded-xl",
+                                      "bg-gradient-to-br from-primary/10 via-primary/5 to-transparent",
+                                      "opacity-0 group-hover/result:opacity-100",
+                                      "transition-opacity duration-300",
+                                      "blur-sm"
+                                    )}
+                                  />
+                                  {/* Shine Effect on Hover */}
+                                  <div
+                                    className={cn(
+                                      "absolute inset-0 rounded-xl overflow-hidden",
+                                      "opacity-0 group-hover/result:opacity-100",
+                                      "transition-opacity duration-300"
+                                    )}
+                                  >
+                                    <div
+                                      className={cn(
+                                        "absolute inset-0",
+                                        "bg-gradient-to-r from-transparent via-white/10 to-transparent",
+                                        "transform -skew-x-12",
+                                        "translate-x-[-100%] group-hover/result:translate-x-[100%]",
+                                        "transition-transform duration-700"
+                                      )}
+                                    />
+                                  </div>
+                                  {/* Border Glow */}
+                                  <div
+                                    className={cn(
+                                      "absolute -inset-0.5 rounded-xl -z-10",
+                                      "bg-gradient-to-r from-primary/30 via-primary/20 to-primary/30",
+                                      "opacity-0 group-hover/result:opacity-100",
+                                      "blur-md transition-opacity duration-300"
+                                    )}
+                                  />
+
+                                  <div className="relative z-10 flex items-start gap-4">
+                                    {/* Product Image */}
+                                    <div
+                                      className={cn(
+                                        "relative flex-shrink-0 w-16 h-16 rounded-xl",
+                                        "overflow-hidden border-2 border-border/70",
+                                        "group-hover/result:border-primary/70",
+                                        "transition-all duration-300",
+                                        "bg-secondary",
+                                        "shadow-md group-hover/result:shadow-lg group-hover/result:shadow-primary/20"
+                                      )}
+                                    >
+                                      {/* Image Glow */}
+                                      <div
+                                        className={cn(
+                                          "absolute -inset-1 rounded-xl",
+                                          "bg-gradient-to-br from-primary/30 to-primary/10",
+                                          "opacity-0 group-hover/result:opacity-100",
+                                          "blur-md transition-opacity duration-300",
+                                          "-z-10"
+                                        )}
+                                      />
+                                      <img
+                                        src={product.image}
+                                        alt={product.name}
+                                        className="w-full h-full object-cover group-hover/result:scale-110 transition-transform duration-300"
+                                        loading="lazy"
+                                      />
+                                      {/* Image Overlay */}
+                                      <div
+                                        className={cn(
+                                          "absolute inset-0",
+                                          "bg-gradient-to-t from-black/30 via-transparent to-transparent",
+                                          "opacity-0 group-hover/result:opacity-100",
+                                          "transition-opacity duration-300"
+                                        )}
+                                      />
+                                    </div>
+
+                                    {/* Product Info */}
+                                    <div className="flex-1 min-w-0">
+                                      {/* Product Name */}
+                                      <h4
+                                        className={cn(
+                                          "font-semibold text-sm mb-1",
+                                          "text-foreground group-hover/result:text-primary",
+                                          "transition-colors duration-200",
+                                          "line-clamp-1"
+                                        )}
+                                      >
+                                        {highlightText(
+                                          product.name,
+                                          searchQuery
+                                        )}
+                                      </h4>
+
+                                      {/* Category Badge */}
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <div
+                                          className={cn(
+                                            "flex items-center gap-1.5 px-2 py-0.5 rounded-lg",
+                                            "bg-primary/10 text-primary",
+                                            "text-xs font-medium",
+                                            "group-hover/result:bg-primary/20",
+                                            "transition-colors duration-200"
+                                          )}
+                                        >
+                                          {categoryIcon && (
+                                            <span className="w-3 h-3">
+                                              {categoryIcon}
+                                            </span>
+                                          )}
+                                          <span className="capitalize">
+                                            {product.category}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      {/* Price and Rating */}
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-base font-bold text-primary">
+                                          ${product.price.toFixed(2)}
+                                        </span>
+                                        {product.originalPrice && (
+                                          <span className="text-xs text-muted-foreground line-through">
+                                            ${product.originalPrice.toFixed(2)}
+                                          </span>
+                                        )}
+                                        <div className="flex items-center gap-1">
+                                          <Star className="h-3 w-3 fill-accent text-accent" />
+                                          <span className="text-xs text-muted-foreground">
+                                            {product.rating}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Arrow Indicator */}
+                                    <ArrowRight
+                                      className={cn(
+                                        "h-5 w-5 text-muted-foreground/50",
+                                        "opacity-0 group-hover/result:opacity-100",
+                                        "group-hover/result:translate-x-1",
+                                        "transition-all duration-200",
+                                        "flex-shrink-0 mt-1"
+                                      )}
+                                    />
+                                  </div>
+
+                                  {/* Selected Indicator */}
+                                  {isSelected && (
+                                    <div
+                                      className={cn(
+                                        "absolute right-2 top-1/2 -translate-y-1/2",
+                                        "w-2 h-2 rounded-full bg-primary",
+                                        "animate-pulse"
+                                      )}
+                                    />
+                                  )}
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        ) : !isSearching ? (
+                          <div className="p-8 text-center bg-surface/20">
+                            <div className="relative w-16 h-16 mx-auto mb-4">
+                              {/* Glow Effect */}
+                              <div className="absolute inset-0 rounded-full bg-primary/20 blur-xl animate-pulse" />
+                              <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-secondary to-secondary/50 border-2 border-primary/20 flex items-center justify-center shadow-lg">
+                                <Search className="h-8 w-8 text-primary/60" />
+                              </div>
+                            </div>
+                            <p className="text-sm font-bold text-foreground mb-1">
+                              No products found
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Try different keywords or browse our categories
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {/* View All Results Link */}
+                      {searchResults.length > 0 && (
+                        <div
+                          className={cn(
+                            "relative px-4 py-3 border-t-2 border-primary/20",
+                            "bg-gradient-to-r from-primary/15 via-primary/10 to-primary/5",
+                            "backdrop-blur-sm"
+                          )}
+                        >
+                          {/* Footer Glow Effect */}
+                          <div
+                            className={cn(
+                              "absolute inset-0",
+                              "bg-gradient-to-r from-primary/10 via-primary/5 to-transparent",
+                              "opacity-50"
+                            )}
+                          />
+                          <Link
+                            to={`/shop?search=${encodeURIComponent(
+                              searchQuery
+                            )}`}
+                            onClick={() => {
+                              setIsSearchOpen(false);
+                              setSearchQuery("");
+                              setSelectedResultIndex(-1);
+                            }}
+                            className={cn(
+                              "relative z-10 flex items-center justify-center gap-2",
+                              "text-sm font-bold",
+                              "bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent",
+                              "hover:gap-3 transition-all duration-300",
+                              "group/viewall"
+                            )}
+                          >
+                            <span>View all results for "{searchQuery}"</span>
+                            <ArrowRight
+                              className={cn(
+                                "h-4 w-4 text-primary transition-transform duration-300",
+                                "group-hover/viewall:translate-x-1"
+                              )}
+                            />
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
             ) : (
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => setIsSearchOpen(true)}
+                onClick={() => {
+                  setIsSearchOpen(true);
+                  setTimeout(() => searchInputRef.current?.focus(), 100);
+                }}
                 className={cn(
                   "relative group/search",
                   "hover:bg-secondary/50",
@@ -447,6 +981,14 @@ export function Header() {
                   className={cn(
                     "h-5 w-5 transition-transform duration-300",
                     "group-hover/search:scale-110 group-hover/search:rotate-12"
+                  )}
+                />
+                {/* Pulse Effect on Hover */}
+                <div
+                  className={cn(
+                    "absolute inset-0 rounded-full bg-primary/20",
+                    "opacity-0 group-hover/search:opacity-100",
+                    "animate-ping scale-150"
                   )}
                 />
               </Button>
@@ -487,7 +1029,7 @@ export function Header() {
                     )}
                   >
                     {cartCount > 99 ? "99+" : cartCount}
-                  </span>
+                </span>
                   <span
                     className={cn(
                       "absolute -top-1 -right-1",
@@ -697,6 +1239,18 @@ export function Header() {
           </div>
         </nav>
       </div>
+
+      {/* Custom Animations for Search */}
+      <style>{`
+        @keyframes shimmer {
+          0% {
+            background-position: -200% center;
+          }
+          100% {
+            background-position: 200% center;
+          }
+        }
+      `}</style>
     </header>
   );
 }

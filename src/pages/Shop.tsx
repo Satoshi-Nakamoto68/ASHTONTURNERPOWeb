@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { Filter, SlidersHorizontal, Grid3X3, LayoutGrid, ChevronDown } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Filter, SlidersHorizontal, Grid3X3, LayoutGrid, ChevronDown, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Layout } from "@/components/layout/Layout";
 import { ProductCard } from "@/components/products/ProductCard";
@@ -17,14 +17,32 @@ import {
 
 const Shop = () => {
   const { category } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchQuery = searchParams.get("search") || "";
   const [view, setView] = useState<"grid" | "large">("grid");
   const [sortBy, setSortBy] = useState("featured");
   const [petFilter, setPetFilter] = useState<string>("all");
 
+  // Filter products by search query
+  const searchFilteredProducts = useMemo(() => {
+    if (!searchQuery.trim()) return PRODUCTS;
+    
+    const query = searchQuery.toLowerCase().trim();
+    return PRODUCTS.filter((product) => {
+      const nameMatch = product.name.toLowerCase().includes(query);
+      const descMatch = product.shortDescription?.toLowerCase().includes(query);
+      const categoryMatch = product.category.toLowerCase().includes(query);
+      const featuresMatch = product.features.some((feature) =>
+        feature.toLowerCase().includes(query)
+      );
+      return nameMatch || descMatch || categoryMatch || featuresMatch;
+    });
+  }, [searchQuery]);
+
   // Filter products by category
   const filteredProducts = category
-    ? PRODUCTS.filter((p) => p.category === category)
-    : PRODUCTS;
+    ? searchFilteredProducts.filter((p) => p.category === category)
+    : searchFilteredProducts;
 
   // Filter by pet type
   const finalProducts = petFilter === "all"
@@ -137,12 +155,42 @@ const Shop = () => {
           <main className="flex-1">
             {/* Header */}
             <AnimatedSection className="mb-8">
-              <h1 className="text-3xl md:text-4xl font-bold mb-2">
-                {currentCategory?.name || "All Products"}
-              </h1>
-              <p className="text-muted-foreground">
-                {currentCategory?.description || "Browse our complete collection of smart pet products"}
-              </p>
+              {searchQuery ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <h1 className="text-3xl md:text-4xl font-bold">
+                      Search Results
+                    </h1>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        searchParams.delete("search");
+                        setSearchParams(searchParams);
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Search className="h-4 w-4" />
+                    <p>
+                      Found <span className="font-semibold text-foreground">{sortedProducts.length}</span> products for "
+                      <span className="font-semibold text-primary">{searchQuery}</span>"
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <h1 className="text-3xl md:text-4xl font-bold mb-2">
+                    {currentCategory?.name || "All Products"}
+                  </h1>
+                  <p className="text-muted-foreground">
+                    {currentCategory?.description || "Browse our complete collection of smart pet products"}
+                  </p>
+                </>
+              )}
             </AnimatedSection>
 
             {/* Toolbar */}
